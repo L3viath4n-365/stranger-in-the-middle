@@ -35,9 +35,9 @@
       <div id="paymentChoice" class="hidden mt-4 p-4 rounded-2xl border border-amber-500/30 bg-amber-950/20">
         <h3 class="text-lg font-bold text-white mb-3">How do you want to book?</h3>
         <div class="flex flex-wrap gap-4">
-          <button id="splitPayBtn" class="flex-1 min-w-[150px] rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-500 transition-colors">Each person pays their own</button>
-          <button id="strangerPayBtn" class="flex-1 min-w-[150px] rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-500 transition-colors">Stranger books all (one person pays)</button>
-          <button id="birthdayPayBtn" class="flex-1 min-w-[150px] rounded-xl bg-purple-600 px-4 py-3 text-sm font-bold text-white hover:bg-purple-500 transition-colors">Birthday split (group shares)</button>
+          <button id="splitPayBtn" class="flex-1 min-w-37.5 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-500 transition-colors">Each person pays their own</button>
+          <button id="strangerPayBtn" class="flex-1 min-w-37.5 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-500 transition-colors">Stranger books all (one person pays)</button>
+          <button id="birthdayPayBtn" class="flex-1 min-w-37.5 rounded-xl bg-purple-600 px-4 py-3 text-sm font-bold text-white hover:bg-purple-500 transition-colors">Birthday split (group shares)</button>
         </div>
         <p class="mt-3 text-xs text-slate-400">Each person pays for their own seat, one person pays for everyone, or the group shares the birthday person's seat.</p>
       </div>
@@ -66,8 +66,10 @@
 
 <script>
   const sessionId = <%- JSON.stringify(sessionId) %>;
+  window.__ACTIVE_SESSION_ID__ = sessionId;
   const sessionSuggestions = <%- JSON.stringify(session.suggestions || []) %>;
   const availableSeats = <%- JSON.stringify(session.available || []) %>;
+  const ticketPrice = Number(<%- JSON.stringify(session.movie.ticketPrice) %>);
   let suggestions = sessionSuggestions.map((option) => ({ ...option, votes: 0 }));
   let selectedSeats = [];
   let votingActive = false;
@@ -124,18 +126,13 @@
     }).catch(() => {});
   }
 
-  // ============================================================
-  // BOOK TICKETS - WITH PAYMENT CHECK
-  // ============================================================
-  async function bookTickets() {
+  async function bookTickets(paymentMethod = 'card', bookedBy = 'Group Coordinator') {
     if (selectedSeats.length === 0) {
       document.getElementById('agentStatus').textContent = 'Select a seat block before booking.';
       return;
     }
-    
-    // Check if payment choice is visible
-    var paymentChoice = document.getElementById('paymentChoice');
-    if (paymentChoice.classList.contains('hidden')) {
+    const paymentChoice = document.getElementById('paymentChoice');
+    if (paymentMethod === 'card' && paymentChoice.classList.contains('hidden')) {
       document.getElementById('agentStatus').textContent = 'Please choose a payment option first.';
       paymentChoice.classList.remove('hidden');
       paymentChoice.style.display = 'block';
@@ -143,10 +140,9 @@
       paymentChoice.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-    
     const response = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/book', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seatIndices: selectedSeats, bookedBy: 'Group Coordinator' })
+      body: JSON.stringify({ seatIndices: selectedSeats, bookedBy, paymentMethod })
     });
     const data = await response.json();
     if (!response.ok) {
@@ -154,6 +150,15 @@
       return;
     }
     window.location.href = '/confirmation/' + data.data.booking.bookingId;
+  }
+
+  function showPaymentChoice() {
+    const paymentChoice = document.getElementById('paymentChoice');
+    paymentChoice.classList.remove('hidden');
+    paymentChoice.style.display = 'block';
+    paymentChoice.style.visibility = 'visible';
+    paymentChoice.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('agentStatus').textContent = 'Choose how to book: split, all at once, or birthday.';
   }
 
   function renderRecommendations() {
@@ -262,6 +267,9 @@
     }).catch(() => {});
   }
 
+  // ============================================================
+  // END VOTING - FORCED TO SHOW PAYMENT OPTIONS
+  // ============================================================
   async function endVoting() {
     if (!votingActive) return;
     votingActive = false;
@@ -272,15 +280,22 @@
       document.getElementById('votingStatus').textContent = 'Winner: Option ' + (winnerIndex + 1);
       document.getElementById('agentStatus').textContent = 'Option ' + (winnerIndex + 1) + ' selected by group vote.';
       
-      // Show payment choice
+      // ============================================================
+      // FORCE SHOW PAYMENT CHOICE
+      // ============================================================
       var paymentChoice = document.getElementById('paymentChoice');
       if (paymentChoice) {
         paymentChoice.classList.remove('hidden');
         paymentChoice.style.display = 'block';
         paymentChoice.style.visibility = 'visible';
-        paymentChoice.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      document.getElementById('agentStatus').textContent = 'Choose how to book: split, all at once, or birthday.';
+      var agentStatus = document.getElementById('agentStatus');
+      if (agentStatus) {
+        agentStatus.textContent = 'Choose how to book: split, all at once, or birthday.';
+      }
+      // Scroll to payment options
+      paymentChoice.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
     } else {
       document.getElementById('votingStatus').textContent = 'No votes cast. Select an option to continue.';
     }
@@ -298,7 +313,7 @@
     document.getElementById('splitPayment').classList.remove('hidden');
     var list = document.getElementById('seatPaymentList');
     list.innerHTML = '';
-    var pricePerSeat = 12.50;
+    var pricePerSeat = ticketPrice;
     selectedSeats.forEach(function(seatIndex2, idx) {
       var seatNum = seatIndex2 + 1;
       var row = String.fromCharCode(65 + Math.floor(seatIndex2 / 8));
@@ -327,7 +342,7 @@
   document.getElementById('strangerPayBtn').addEventListener('click', function() {
     document.getElementById('paymentChoice').classList.add('hidden');
     if (confirm('Stranger will book all seats. One person will pay for everyone. Continue?')) {
-      bookTickets();
+      bookTickets('stranger_pays_all', 'Stranger In The Middle');
     } else {
       document.getElementById('paymentChoice').classList.remove('hidden');
     }
@@ -340,7 +355,7 @@
     var list2 = document.getElementById('birthdayPersonList');
     list2.innerHTML = '';
     var totalSeats2 = selectedSeats.length;
-    var pricePerSeat2 = 12.50;
+    var pricePerSeat2 = ticketPrice;
     var birthdayPrice = pricePerSeat2 / totalSeats2;
     selectedSeats.forEach(function(seatIndex3, idx2) {
       var seatNum2 = seatIndex3 + 1;
@@ -374,47 +389,42 @@
 
   // CONFIRM SPLIT PAYMENT
   document.getElementById('confirmSplitPayment').addEventListener('click', function() {
-    var seatNumbers = selectedSeats.map(function(s) { return s + 1; });
-    seatNumbers.forEach(function(n) { availableSeats[n - 1] = false; });
-    selectedSeats = [];
-    suggestions = [];
-    document.getElementById('recContainer').innerHTML = '';
-    document.getElementById('votingBar').classList.add('hidden');
-    document.getElementById('splitPayment').classList.add('hidden');
-    document.getElementById('paymentChoice').classList.add('hidden');
-    renderSeats();
-    document.getElementById('agentStatus').textContent = 'All seats paid and confirmed!';
-    document.getElementById('bookBtn').textContent = 'Booking confirmed!';
-    document.getElementById('bookBtn').disabled = true;
+    bookTickets('split_payment', 'Group Members');
   });
 
   // CONFIRM BIRTHDAY PAYMENT
   document.getElementById('confirmBirthdayPayment').addEventListener('click', function() {
-    var seatNumbers2 = selectedSeats.map(function(s) { return s + 1; });
-    seatNumbers2.forEach(function(n) { availableSeats[n - 1] = false; });
-    selectedSeats = [];
-    suggestions = [];
-    document.getElementById('recContainer').innerHTML = '';
-    document.getElementById('votingBar').classList.add('hidden');
-    document.getElementById('birthdayPayment').classList.add('hidden');
-    document.getElementById('paymentChoice').classList.add('hidden');
-    renderSeats();
-    document.getElementById('agentStatus').textContent = 'Birthday booking confirmed! Everyone shared the cost.';
-    document.getElementById('bookBtn').textContent = 'Booking confirmed!';
-    document.getElementById('bookBtn').disabled = true;
+    bookTickets('birthday_split', 'Group Members');
   });
 
   // GROUP SIZE CHANGE
-  document.getElementById('groupSize').addEventListener('change', function() {
-    groupSize = parseInt(this.value);
+  document.getElementById('groupSize').addEventListener('change', async function() {
+    groupSize = parseInt(this.value, 10);
     document.getElementById('groupSizeDisplay').textContent = groupSize;
     updateColumnChoices();
+    selectedSeats = [];
+    document.getElementById('agentStatus').textContent = 'Updating AI seat suggestions...';
+    const response = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/find-seats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupSize })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      document.getElementById('agentStatus').textContent = data.error?.message || 'Could not update seat suggestions.';
+      return;
+    }
+    suggestions = data.data.suggestions.map((option) => ({ ...option, votes: 0 }));
+    document.getElementById('recContainer').innerHTML = '';
+    renderRecommendations();
+    renderSeats();
+    document.getElementById('agentStatus').textContent = 'AI suggestions updated for ' + groupSize + ' seats.';
   });
 
   document.getElementById('startVoteBtn')?.addEventListener('click', startVoting);
   document.getElementById('endVotingBtn')?.addEventListener('click', endVoting);
   document.getElementById('applyManualBtn')?.addEventListener('click', applyManualSelection);
-  document.getElementById('bookBtn')?.addEventListener('click', bookTickets);
+  document.getElementById('bookBtn')?.addEventListener('click', showPaymentChoice);
 
   updateColumnChoices();
   renderSeats();
